@@ -109,6 +109,9 @@
         align-items: baseline;
         margin: 14px 0 6px;
       }
+      #copy {
+        margin-left: auto;
+      }
       button {
         background: #2c313a;
         color: #dfe3ea;
@@ -144,15 +147,19 @@
   <body>
     <h1>WKT2 Pretty Printer</h1>
 
-    <div class="label">Input</div>
+    <div class="row">
+      <div class="label">Input</div>
+      <span id="status"></span>
+    </div>
     <textarea id="src" spellcheck="false"></textarea>
 
     <div id="err"></div>
 
     <div class="row">
-      <button id="copy">Copy output</button>
       <span class="label">Output</span>
-      <span id="status"></span>
+      <button id="bracket">compact []</button>
+      <button id="indent">↹↹</button>
+      <button id="copy">Copy output</button>
     </div>
     <pre id="out"></pre>
     <div id="tip"></div>
@@ -164,7 +171,9 @@
 
       const EXAMPLE = `COORDINATEOPERATION["MGI_To_ETRS_1989_4",SOURCECRS[GEOGCRS["GCS_MGI",DATUM["D_MGI",ELLIPSOID["Bessel_1841",6377397.155,299.1528128]],PRIMEM["Greenwich",0.0],CS[ellipsoidal,2],AXIS["Latitude (lat)",north,ORDER[1]],AXIS["Longitude (lon)",east,ORDER[2]],ANGLEUNIT["Degree",0.0174532925199433]]],TARGETCRS[GEOGCRS["GCS_ETRS_1989",DATUM["D_ETRS_1989",ELLIPSOID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],CS[ellipsoidal,2],AXIS["Latitude (lat)",north,ORDER[1]],AXIS["Longitude (lon)",east,ORDER[2]],ANGLEUNIT["Degree",0.0174532925199433]]],METHOD["Coordinate_Frame"],PARAMETER["X_Axis_Translation",601.705,LENGTHUNIT["Meter",1.0]],PARAMETER["Y_Axis_Translation",84.263,LENGTHUNIT["Meter",1.0]],PARAMETER["Z_Axis_Translation",485.227,LENGTHUNIT["Meter",1.0]],PARAMETER["X_Axis_Rotation",-4.7354,ANGLEUNIT["Arcsecond",0.00000484813681109536]],PARAMETER["Y_Axis_Rotation",-1.3145,ANGLEUNIT["Arcsecond",0.00000484813681109536]],PARAMETER["Z_Axis_Rotation",-5.393,ANGLEUNIT["Arcsecond",0.00000484813681109536]],PARAMETER["Scale_Difference",-2.3887,SCALEUNIT["Parts_Per_Million",0.000001]],OPERATIONACCURACY[1.0],ID["EPSG","1024"]]`;
 
-      const INDENT = 4;
+      let INDENT = 4;
+
+      let ROOMY = true;
 
       function parseText(src) {
         const fail = (msg, off) => {
@@ -264,7 +273,7 @@
         );
         const oneline = n.name === "PARAMETER" || n.name === "AXIS";
         if (!oneline) {
-          return `${indent}${n.name}[${args.join(", ")}${indent}]`;
+          return `${indent}${n.name}[${args.join(", ")}${ROOMY ? indent : ""}]`;
         }
         return indent + `${n.name}[${args.join(", ")}]`.replaceAll(/\s+/g, " ");
       }
@@ -788,6 +797,16 @@
         });
         out.addEventListener("mouseout", (e) => {
           if (e.target.closest(".fn")) tip.style.display = "none";
+        });
+        document.getElementById("bracket").addEventListener("click", () => {
+          document.getElementById("bracket").textContent = `${ROOMY ? "roomy" : "compact"} []`;
+          ROOMY = !ROOMY;
+          refresh();
+        });
+        document.getElementById("indent").addEventListener("click", () => {
+          document.getElementById("indent").textContent = "↹".repeat(INDENT);
+          INDENT = INDENT === 2 ? 4 : 2;
+          refresh();
         });
         document.getElementById("copy").addEventListener("click", () => {
           navigator.clipboard.writeText(out.textContent).then(() => {
