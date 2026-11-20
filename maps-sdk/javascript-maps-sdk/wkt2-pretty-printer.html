@@ -1,0 +1,825 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>WKT2 Pretty Printer</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #1b1e24;
+        color: #dfe3ea;
+        font:
+          14px/1.5 system-ui,
+          sans-serif;
+      }
+      body {
+        padding: 24px;
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 16px;
+        font-weight: 600;
+      }
+      textarea,
+      pre {
+        width: 100%;
+        box-sizing: border-box;
+        font:
+          13px/1.55 ui-monospace,
+          Consolas,
+          monospace;
+        background: #12141a;
+        color: #dfe3ea;
+        border: 1px solid #2c313a;
+        border-radius: 6px;
+        padding: 12px;
+      }
+      textarea {
+        min-height: 240px;
+        resize: vertical;
+      }
+      pre {
+        margin: 12px 0 0;
+        white-space: pre;
+        overflow: auto;
+      }
+      pre .str {
+        color: #e0b070;
+      }
+      pre .num {
+        color: #6fb3e0;
+      }
+      pre .fn {
+        color: #74c69d;
+        cursor: help;
+        border-bottom: 1px dotted #74c69d66;
+      }
+      #tip {
+        position: fixed;
+        z-index: 10;
+        background: #12141a;
+        border: 1px solid #3a404b;
+        border-radius: 6px;
+        padding: 10px 12px;
+        max-width: 460px;
+        font-size: 12.5px;
+        line-height: 1.45;
+        display: none;
+        box-shadow: 0 6px 18px #0008;
+        box-sizing: border-box;
+      }
+      #tip .th {
+        font-weight: 600;
+        color: #dfe3ea;
+      }
+      #tip .td {
+        color: #9aa2ad;
+        margin: 2px 0 6px;
+      }
+      #tip table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      #tip td {
+        padding: 1px 8px 1px 0;
+        vertical-align: top;
+        color: #dfe3ea;
+      }
+      #tip .an {
+        color: #74c69d;
+        white-space: nowrap;
+      }
+      #tip .ar {
+        width: 1.2em;
+        color: #e0b070;
+        white-space: nowrap;
+      }
+      #tip .note {
+        color: #7d8590;
+        margin-top: 6px;
+        font-size: 11.5px;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        margin: 14px 0 6px;
+      }
+      #copy {
+        margin-left: auto;
+      }
+      button {
+        background: #2c313a;
+        color: #dfe3ea;
+        border: 1px solid #3a404b;
+        border-radius: 6px;
+        padding: 6px 14px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #363c48;
+      }
+      #err {
+        color: #f6808c;
+        margin: 8px 0;
+        display: none;
+        white-space: pre-wrap;
+        font-size: 13px;
+      }
+      #status {
+        font-size: 12px;
+        color: #7d8590;
+        margin-left: auto;
+      }
+      .label {
+        font-size: 12px;
+        color: #7d8590;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WKT2 Pretty Printer</h1>
+
+    <div class="row">
+      <div class="label">Input</div>
+      <span id="status"></span>
+    </div>
+    <textarea id="src" spellcheck="false"></textarea>
+
+    <div id="err"></div>
+
+    <div class="row">
+      <span class="label">Output</span>
+      <button id="bracket">compact []</button>
+      <button id="indent">↹↹</button>
+      <button id="copy">Copy output</button>
+    </div>
+    <pre id="out"></pre>
+    <div id="tip"></div>
+
+    <script>
+      "use strict";
+
+      // ---------- pure WKT2 core (no DOM) ----------
+
+      const EXAMPLE = `COORDINATEOPERATION["MGI_To_ETRS_1989_4",SOURCECRS[GEOGCRS["GCS_MGI",DATUM["D_MGI",ELLIPSOID["Bessel_1841",6377397.155,299.1528128]],PRIMEM["Greenwich",0.0],CS[ellipsoidal,2],AXIS["Latitude (lat)",north,ORDER[1]],AXIS["Longitude (lon)",east,ORDER[2]],ANGLEUNIT["Degree",0.0174532925199433]]],TARGETCRS[GEOGCRS["GCS_ETRS_1989",DATUM["D_ETRS_1989",ELLIPSOID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],CS[ellipsoidal,2],AXIS["Latitude (lat)",north,ORDER[1]],AXIS["Longitude (lon)",east,ORDER[2]],ANGLEUNIT["Degree",0.0174532925199433]]],METHOD["Coordinate_Frame"],PARAMETER["X_Axis_Translation",601.705,LENGTHUNIT["Meter",1.0]],PARAMETER["Y_Axis_Translation",84.263,LENGTHUNIT["Meter",1.0]],PARAMETER["Z_Axis_Translation",485.227,LENGTHUNIT["Meter",1.0]],PARAMETER["X_Axis_Rotation",-4.7354,ANGLEUNIT["Arcsecond",0.00000484813681109536]],PARAMETER["Y_Axis_Rotation",-1.3145,ANGLEUNIT["Arcsecond",0.00000484813681109536]],PARAMETER["Z_Axis_Rotation",-5.393,ANGLEUNIT["Arcsecond",0.00000484813681109536]],PARAMETER["Scale_Difference",-2.3887,SCALEUNIT["Parts_Per_Million",0.000001]],OPERATIONACCURACY[1.0],ID["EPSG","1024"]]`;
+
+      let INDENT = 4;
+
+      let ROOMY = true;
+
+      function parseText(src) {
+        const fail = (msg, off) => {
+          const before = src.slice(0, off);
+          const line = before.split("\n").length;
+          const col = off - before.lastIndexOf("\n");
+          throw new Error(`${msg} at ${line}:${col}, offset ${off}`);
+        };
+
+        const toks = [];
+        let i = 0;
+        while (i < src.length) {
+          const c = src[i];
+          if (c <= " ") {
+            i++;
+            continue;
+          }
+          const s = i;
+          if (c === '"') {
+            let j = i + 1;
+            for (; ; j++) {
+              if (j >= src.length) fail("unterminated string", s);
+              if (src[j] === '"' && src[j - 1] !== "\\") break;
+            }
+            toks.push({ k: "str", s, e: j + 1 });
+            i = j + 1;
+          } else if (c === "[" || c === "]" || c === ",") {
+            toks.push({ k: c, s, e: i + 1 });
+            i++;
+          } else if (
+            /[0-9]/.test(c) ||
+            ((c === "-" || c === "+") && /[0-9.]/.test(src[i + 1] || ""))
+          ) {
+            const m = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(
+              src.slice(i),
+            );
+            if (!m) fail("invalid number", s);
+            toks.push({ k: "num", s, e: i + m[0].length });
+            i += m[0].length;
+          } else if (/[A-Za-z_]/.test(c)) {
+            const m = /^[A-Za-z0-9_]+/.exec(src.slice(i));
+            toks.push({ k: "id", s, e: i + m[0].length });
+            i += m[0].length;
+          } else {
+            fail("unexpected character " + JSON.stringify(c), s);
+          }
+        }
+
+        let p = 0;
+        const node = () => {
+          const t = toks[p];
+          if (!t) fail("unexpected end of input", src.length);
+          if (t.k === "str" || t.k === "num") {
+            p++;
+            return src.slice(t.s, t.e);
+          }
+          if (t.k === "id") {
+            const name = src.slice(t.s, t.e);
+            if (toks[p + 1] && toks[p + 1].k === "[") {
+              const open = toks[p + 1];
+              p += 2;
+              const args = [];
+              if (!(toks[p] && toks[p].k === "]")) {
+                args.push(node());
+                while (toks[p] && toks[p].k === ",") {
+                  p++;
+                  args.push(node());
+                }
+              }
+              if (!(toks[p] && toks[p].k === "]"))
+                fail("missing closing ]", open.s);
+              const close = toks[p];
+              p++;
+              return { name, args, raw: src.slice(t.s, close.e) };
+            }
+            p++;
+            return name; // bare identifier (e.g. CS[ellipsoidal,2], AXIS["x",north,ORDER[1]])
+          }
+          fail("unexpected " + src.slice(t.s, t.e), t.s);
+        };
+
+        const r = node();
+        if (p < toks.length) fail("trailing tokens after value", toks[p].s);
+        return r;
+      }
+
+      function renderAST(n, depth = 0) {
+        if (typeof n === "string") return n;
+        const indent = "\n" + " ".repeat(depth * INDENT);
+        // scalar-only calls stay inline; calls with any nested call expand them one per line
+        if (n.args.every((a) => typeof a === "string")) {
+          return `${indent}${n.name}[${n.args.join(", ")}]`;
+        }
+        // scalars (strings/numbers/bare words) stay on the name line; nested calls get indented lines
+        let args = n.args.map((a) =>
+          typeof a === "string" ? a : renderAST(a, depth + 1),
+        );
+        const oneline = n.name === "PARAMETER" || n.name === "AXIS";
+        if (!oneline) {
+          return `${indent}${n.name}[${args.join(", ")}${ROOMY ? indent : ""}]`;
+        }
+        return indent + `${n.name}[${args.join(", ")}]`.replaceAll(/\s+/g, " ");
+      }
+
+      function format(wkt) {
+        wkt = String(wkt).trim();
+        return renderAST(parseText(wkt)).replaceAll(/ +\n/g, "\n").slice(1);
+      }
+
+      // Argument help table, transcribed from the engine's own WKT2 parsers
+      // (dotnet/pe/src/formatters/wkt2/PeWKT2*.cs — fromTokens/toString per object type).
+      // row: [name, requirement (*=required, 1+=repeat), description]
+      const WKT_HELP = {
+        COORDINATEOPERATION: {
+          d: "Coordinate operation transforming between two CRS frames (e.g. MGI to ETRS_1989).",
+          a: [
+            ["name", "*", "quoted operation name"],
+            ["SOURCECRS", "*", "CRS transformed FROM (GEOGCRS/VERTCRS/...)"],
+            [
+              "TARGETCRS",
+              "*",
+              "CRS transformed TO (omittable for TIME_INTRA methods)",
+            ],
+            [
+              "METHOD",
+              "*",
+              'operation method, e.g. METHOD["Coordinate_Frame"]',
+            ],
+            [
+              "PARAMETER",
+              "1+",
+              "method parameters, one per line: PARAMETER[name,value,UNIT]",
+            ],
+            ["OPERATIONACCURACY", "", "estimated accuracy [m]"],
+            ["USAGE", "", "usage notes"],
+            ["ID", "", 'authority: ID["EPSG","1024"]'],
+            ["REMARK", "", "free-form remark"],
+          ],
+          n: "sub-objects are matched by keyword (order-free); unknown ones are silently skipped",
+        },
+        POINTOPERATION: {
+          d: "Point operation — same arguments as COORDINATEOPERATION, emitted when the method returns TIME_INTRA.",
+        },
+        SOURCECRS: {
+          d: "The CRS a coordinate operation transforms FROM. Holds a GEOGCRS, VERTCRS or GEODCRS.",
+        },
+        TARGETCRS: {
+          d: "The CRS a coordinate operation transforms TO. Holds a GEOGCRS, VERTCRS or GEODCRS.",
+        },
+        GEOGCRS: {
+          d: "Horizontal (geographic) coordinate reference system.",
+          a: [
+            ["name", "*", 'quoted CRS name, e.g. "GCS_MGI"'],
+            [
+              "DYNAMIC",
+              "",
+              'optional: DYNAMIC[FRAMEEPOCH[year], MODEL["name"]]',
+            ],
+            ["DATUM", "*", "referenced geodetic datum"],
+            ["PRIMEM", "", "prime meridian"],
+            ["CS", "*", "required literal, e.g. CS[ellipsoidal,2]"],
+            ["AXIS", "1+", "one axis declaration per dimension"],
+            ["ANGLEUNIT", "", "degree/arcsecond unit"],
+            ["USAGE", "", "usage notes"],
+            ["ID", "", 'authority, e.g. ID["EPSG","4326"]'],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        GEODCRS: {
+          d: "Geodetic CRS in 3D Cartesian/XYZ form. Same shape as GEOGCRS but CS[XYZ,3].",
+          a: [
+            ["name", "*", "quoted name"],
+            ["DATUM", "*", "datum"],
+            ["CS", "*", "CS[cartesian,3]"],
+            ["AXIS", "1+", "X / Y / Z axes"],
+            ["LENGTHUNIT", "", "unit"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        PROJCRS: {
+          d: "Projected (planar) coordinate reference system.",
+          a: [
+            ["name", "*", "quoted CRS name"],
+            [
+              "GEOGCRS",
+              "*",
+              "base geographic CRS (emitted BASEGEOGCRS in some dialects)",
+            ],
+            ["CONVERSION", "*", "PROJECTION plus its PARAMETERs"],
+            ["CS", "*", "required literal, e.g. CS[Cartesian,2]"],
+            ["AXIS", "1+", "easting/northing axes"],
+            ["LENGTHUNIT", "", "meter-equivalent unit"],
+            ["USAGE", "", "usage notes"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        VERTCRS: {
+          d: "Vertical coordinate reference system.",
+          a: [
+            ["name", "*", 'quoted CRS name, e.g. VERTCRS["NZGD2000"]'],
+            ["VDATUM", "*", "vertical datum"],
+            ["PARAMETER", "", "datum parameters (optional)"],
+            ["CS", "*", "required literal CS[vertical,1]"],
+            ["AXIS", "*", 'e.g. AXIS["height",up]'],
+            ["LENGTHUNIT", "", 'e.g. LENGTHUNIT["m",1.0]'],
+            ["GEOIDMODEL", "", "geoid model name (optional)"],
+            ["USAGE", "", "usage notes"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        COMPOUNDCRS: {
+          d: "Compound CRS combining a GEOGCRS and a VERTCRS (see PeWKT2HVCoordsys).",
+          a: [
+            ["name", "*", "quoted name"],
+            ["GEOGCRS", "*", "horizontal part"],
+            ["VERTCRS", "*", "vertical part"],
+            ["AXIS", "1+", "merged axis list"],
+            ["USAGE", "", "usage notes"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        DATUM: {
+          d: "Geodetic datum tying a coordinate system to the Earth.",
+          a: [
+            ["name", "*", 'quoted name, e.g. "D_MGI"'],
+            ["ANCHOR", "", "anchor point (optional)"],
+            ["ANCHOR_EPOCH", "", "anchor epoch (optional)"],
+            ["ELLIPSOID", "*", "reference ellipsoid"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        VDATUM: {
+          d: 'Vertical datum, e.g. VDATUM["NAVD_88"].',
+          a: [
+            ["name", "*", "quoted name"],
+            ["TOWGS84", "", "optional 7-number offset"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        ELLIPSOID: {
+          d: "Reference ellipsoid of revolution.",
+          a: [
+            ["name", "*", 'quoted name, e.g. "Bessel_1841"'],
+            ["semi-major-axis", "*", "equatorial radius [m]"],
+            ["inv-flattening", "", "1/f (optional for oblate shapes)"],
+            ["LENGTHUNIT", "", "unit of the axis lengths (optional)"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        PRIMEM: {
+          d: "Prime meridian reference.",
+          a: [
+            ["name", "*", 'e.g. "Greenwich"'],
+            ["longitude", "*", "offset from Greenwich [°]"],
+            ["ANGLEUNIT", "", "optional unit"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        CS: {
+          d: "Coordinate-system declaration (required inside each CRS).",
+          a: [
+            ["type", "*", "ellipsoidal | Cartesian | vertical (bare word)"],
+            ["dimension", "*", "integer, e.g. 2 or 3"],
+          ],
+        },
+        AXIS: {
+          d: "One axis declaration of a CRS.",
+          a: [
+            ["name", "*", 'e.g. "Latitude (lat)"'],
+            ["direction", "*", "north / east / up / down (bare word)"],
+            ["MERIDIAN", "", "optional meridian unit (geographic axes)"],
+            ["ORDER", "*", "position within the CRS, ORDER[n]"],
+            ["ID", "", "authority"],
+          ],
+        },
+        ORDER: {
+          d: "Axis position within its CRS (1-based).",
+          a: [["index", "*", "integer"]],
+        },
+        METHOD: {
+          d: 'Operation method selector, e.g. METHOD["Coordinate_Frame"].',
+          a: [
+            ["name", "*", "quoted method name"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        PROJECTION: {
+          d: 'Map projection method, e.g. PROJECTION["Transverse_Mercator_1962"].',
+          a: [
+            ["name", "*", "quoted projection name"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        CONVERSION: {
+          d: "Named parameterized conversion (holds PROJECTION plus its PARAMETERs).",
+          a: [
+            ["name", "*", "quoted name"],
+            ["PROJECTION", "*", "projection method"],
+            ["PARAMETER", "1+", "projection parameters"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        PARAMETER: {
+          d: "One method/projection parameter with value and unit.",
+          a: [
+            ["name", "*", 'e.g. "X_Axis_Translation"'],
+            ["value", "*", "number or quoted string"],
+            ["UNIT", "", "LENGTHUNIT, ANGLEUNIT or SCALEUNIT"],
+            ["ID", "", "authority"],
+          ],
+        },
+        PARAMETERFILE: {
+          d: 'External grid/parameter file reference, e.g. PARAMETERFILE["path/to/file.tif"].',
+          a: [["path", "*", "quoted file path"]],
+        },
+        OPERATIONACCURACY: {
+          d: "Estimated accuracy of the operation [metres].",
+          a: [["accuracy", "*", "number"]],
+        },
+        ANGLEUNIT: {
+          d: "Angle unit with radians-per-unit factor.",
+          a: [
+            ["name", "*", 'e.g. "Degree"'],
+            ["factor", "*", "radians per unit"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        LENGTHUNIT: {
+          d: "Length unit with metres-per-unit factor.",
+          a: [
+            ["name", "*", 'e.g. "Meter"'],
+            ["factor", "*", "metres per unit (1.0 for metres)"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        SCALEUNIT: {
+          d: "Scale unit with parts-per-million factor.",
+          a: [
+            ["name", "*", 'e.g. "Parts_Per_Million"'],
+            ["factor", "*", "ppm as a plain number"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        UNIT: {
+          d: "Generic unit (angle/length/scale as applicable).",
+          a: [
+            ["name", "*", "quoted name"],
+            ["factor", "*", "conversion factor"],
+            ["ID", "", "authority"],
+            ["REMARK", "", "remark"],
+          ],
+        },
+        ID: {
+          d: "Authority and code identifying the object.",
+          a: [
+            ["authority", "*", 'e.g. "EPSG"'],
+            ["code", "*", 'e.g. "4326"'],
+          ],
+        },
+        USAGE: {
+          d: "Usage notes for the containing object.",
+          a: [
+            [
+              "text",
+              "*",
+              "quoted usage description, e.g. Primary or Secondary",
+            ],
+          ],
+        },
+        REMARK: {
+          d: "Free-form remark text.",
+          a: [["text", "*", "quoted remark"]],
+        },
+        DYNAMIC: {
+          d: "Dynamic-CRS marker (e.g. ITRF), with the reference frame epoch.",
+          a: [
+            ["FRAMEEPOCH", "*", "frame epoch as a year"],
+            ["MODEL", "", "optional model name"],
+          ],
+        },
+        FRAMEEPOCH: {
+          d: "Frame epoch (reference year).",
+          a: [["year", "*", "number"]],
+        },
+        MODEL: {
+          d: "Model name for a dynamic CRS.",
+          a: [["name", "*", "quoted name"]],
+        },
+        GEOIDMODEL: {
+          d: "Geoid model name used to derive a vertical CRS.",
+          a: [["name", "*", "quoted geoid-model name"]],
+        },
+      };
+
+      function highlight(src) {
+        const esc = (c) =>
+          c.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return src.replace(
+          /"([^"\\]|\\.)*"|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[A-Za-z_][A-Za-z0-9_]*(?=\s*\[)/g,
+          (m) => {
+            const cls =
+              m[0] === '"' ? "str" : /[0-9+-]/.test(m[0]) ? "num" : "fn";
+            const k = WKT_HELP.hasOwnProperty(m.toUpperCase())
+              ? ' data-k="' + m.toUpperCase() + '"'
+              : "";
+            return '<span class="' + cls + '"' + k + ">" + esc(m) + "</span>";
+          },
+        );
+      }
+
+      function helpTip(k) {
+        const e = WKT_HELP[k];
+        if (!e)
+          return (
+            '<span class="th">' +
+            k +
+            '</span><div class="td">no entry in the help table</div>'
+          );
+        let h =
+          '<span class="th">' + k + '</span><div class="td">' + e.d + "</div>";
+        if (e.a) {
+          h +=
+            "<table>" +
+            e.a
+              .map(
+                (r) =>
+                  '<tr><td class="ar">' +
+                  r[1] +
+                  '</td><td class="an">' +
+                  r[0] +
+                  "</td><td>" +
+                  r[2] +
+                  "</td></tr>",
+              )
+              .join("") +
+            "</table>";
+        }
+        if (e.n) h += '<div class="note">' + e.n + "</div>";
+        return h;
+      }
+
+      function treeEq(a, b) {
+        if (typeof a === "string" || typeof b === "string") return a === b;
+        return (
+          a.name === b.name &&
+          a.args.length === b.args.length &&
+          a.args.every((x, i) => treeEq(x, b.args[i]))
+        );
+      }
+
+      function selfTests() {
+        let count = 0;
+        const fails = [];
+        const t = (name, fn) => {
+          ++count;
+          try {
+            fn();
+          } catch (e) {
+            fails.push(`\n${name}: ${e.message}`);
+          }
+        };
+        const assert = (cond, msg) => {
+          if (!cond) throw new Error(msg);
+        };
+        const assertFormatsTo = (s, expected, msg = "") => {
+          const got = format(s);
+          assert(
+            got === expected,
+            `${msg}\n--------got:\n${got}\n----expected:\n${expected}`,
+          );
+        };
+
+        t("inline short block", () => {
+          const s = 'ELLIPSOID["Bessel_1841", 6377397.155, 299.1528128]';
+          assertFormatsTo(s, s, "expected identity");
+        });
+        t("expand blocks that exceed width, keep small ones inline", () => {
+          const a = "a".repeat(62);
+          const s = 'R[AAAA["' + a + '"],BB[1.5]]';
+          assertFormatsTo(s, 'R[\n    AAAA["' + a + '"],\n    BB[1.5]\n]');
+        });
+        t("scalars precede nested calls and stay on the name line", () => {
+          const s =
+            'GEOGCRS["GCS_ETRS_1989",DATUM["D_ETRS_1989",ELLIPSOID["GRS_1980",6378137.0,298.257222101]]]';
+          assertFormatsTo(
+            s,
+            'GEOGCRS["GCS_ETRS_1989",\n    DATUM["D_ETRS_1989",\n        ELLIPSOID["GRS_1980", 6378137.0, 298.257222101]\n    ]\n]',
+          );
+        });
+        t(
+          "a nested call forces expansion even when the whole call fits",
+          () => {
+            assertFormatsTo(
+              'DATUM["D_MGI", ELLIPSOID["Bessel_1841", 6377397.155, 299.1528128] ]',
+              'DATUM["D_MGI",\n    ELLIPSOID["Bessel_1841", 6377397.155, 299.1528128]\n]',
+            );
+          },
+        );
+        t("a oneline call doesn't force expansion", () => {
+          assertFormatsTo(
+            'PARAMETER["X_Axis_Translation",601.705,LENGTHUNIT["Meter",1.0]]',
+            'PARAMETER["X_Axis_Translation", 601.705, LENGTHUNIT["Meter", 1.0]]',
+          );
+        });
+        t("negative numbers and bare ids", () => {
+          const s = "M[-4.7354,+2,CS[ellipsoidal,2]]";
+          assertFormatsTo(s, "M[-4.7354, +2,\n    CS[ellipsoidal, 2]\n]");
+        });
+        t("rejects bad input with position", () => {
+          let threw = "";
+          try {
+            format("FOO[1,");
+          } catch (e) {
+            threw = e.message;
+          }
+          assert(
+            threw.match(/ at 1:7/),
+            `expected positional error, got "${threw}"`,
+          );
+        });
+        t("highlight colors classes and escapes html", () => {
+          const h = highlight('FOO["a<b",-1.5,bar]');
+          assert(h.indexOf('<span class="fn">FOO</span>') === 0, "fn span");
+          assert(h.indexOf("&lt;") !== -1, "escaped");
+          assert(h.indexOf('<span class="num">-1.5</span>') !== -1, "num span");
+          assert(
+            h.indexOf('<span class="str">"a&lt;b"</span>') !== -1,
+            "str span",
+          );
+        });
+        t("example round-trips (format then re-parse = same tree)", () => {
+          assert(
+            treeEq(parseText(EXAMPLE), parseText(format(EXAMPLE))),
+            "tree mismatch after format",
+          );
+        });
+        t("help table covers every function name in the example", () => {
+          const names = [
+            ...new Set(
+              EXAMPLE.match(/[A-Za-z_][A-Za-z0-9_]*(?=\s*\[)/g).map((x) =>
+                x.toUpperCase(),
+              ),
+            ),
+          ];
+          names.forEach((k) =>
+            assert(WKT_HELP.hasOwnProperty(k) && WKT_HELP[k].d, "missing " + k),
+          );
+        });
+        t("highlight tags known functions with data-k", () => {
+          const h = highlight('FOO["a"]');
+          assert(
+            h.indexOf('<span class="fn" data-k="COORDINATEOPERATION">') === -1,
+            "unknown name must NOT get data-k",
+          );
+          const h2 = highlight('COORDINATEOPERATION["a"]');
+          assert(
+            h2.indexOf('<span class="fn" data-k="COORDINATEOPERATION">') === 0,
+            "COORDINATEOPERATION must get data-k",
+          );
+        });
+        return [fails, count];
+      }
+
+      // ---------- DOM wiring ----------
+
+      if (typeof document !== "undefined") {
+        const ta = document.getElementById("src");
+        const out = document.getElementById("out");
+        const errEl = document.getElementById("err");
+        const status = document.getElementById("status");
+
+        const [fails, count] = selfTests();
+        status.textContent = fails.length
+          ? `self-tests FAILED (${fails.length}/${count}), see console`
+          : `self-tests passed`;
+        status.style.color = fails.length ? "#f6808c" : "#6fbf8f";
+        if (fails.length) console.error(fails.join("\n"));
+
+        const refresh = () => {
+          try {
+            out.innerHTML = highlight(format(ta.value));
+            errEl.style.display = "none";
+          } catch (e) {
+            errEl.textContent = String(e.message || e);
+            errEl.style.display = "block";
+          }
+        };
+        ta.addEventListener("input", refresh);
+        const tip = document.getElementById("tip");
+        out.addEventListener("mouseover", (e) => {
+          const el = e.target.closest(".fn");
+          if (!el || !el.dataset.k) {
+            tip.style.display = "none";
+            return;
+          }
+          tip.innerHTML = helpTip(el.dataset.k);
+          tip.style.display = "block";
+          const r = el.getBoundingClientRect();
+          tip.style.left =
+            Math.min(r.left, window.innerWidth - 480) + 12 + "px";
+          const th = tip.offsetHeight;
+          const below = r.bottom + 6;
+          tip.style.top =
+            (below + th > window.innerHeight - 8
+              ? Math.max(8, r.top - th - 6)
+              : below) + "px";
+        });
+        out.addEventListener("mouseout", (e) => {
+          if (e.target.closest(".fn")) tip.style.display = "none";
+        });
+        document.getElementById("bracket").addEventListener("click", () => {
+          document.getElementById("bracket").textContent = `${ROOMY ? "roomy" : "compact"} []`;
+          ROOMY = !ROOMY;
+          refresh();
+        });
+        document.getElementById("indent").addEventListener("click", () => {
+          document.getElementById("indent").textContent = "↹".repeat(INDENT);
+          INDENT = INDENT === 2 ? 4 : 2;
+          refresh();
+        });
+        document.getElementById("copy").addEventListener("click", () => {
+          navigator.clipboard.writeText(out.textContent).then(() => {
+            const b = document.getElementById("copy");
+            b.textContent = "Copied";
+            setTimeout(() => {
+              b.textContent = "Copy output";
+            }, 1000);
+          });
+        });
+        ta.value = EXAMPLE;
+        refresh();
+      }
+    </script>
+  </body>
+</html>
